@@ -10,9 +10,36 @@ export const resolvers = {
     me: (_, __, ctx: GQLContext) => {
       return ctx.user
     },
+    issues: (_, { input }, ctx: GQLContext) => {
+      if (!ctx.user) {
+        throw new GraphQLError('UNAUTHORIZED', { extensions: { code: 401 } })
+      }
+
+      const andFilters = [eq(issues.userId, ctx.user.id)]
+      if (input && input.statuses) {
+        const statusFilters = input.statuses.map((status) =>
+          eq(issues.status, status)
+        )
+        andFilters.push(or(...statusFilters))
+      }
+
+      const data = await db.query.issues.findMany({
+        where: and(...andFilters),
+        orderBy: [
+          asc(sql`case ${issues.status}
+        when "backlog" then 1
+        when "inprogress" then 2
+        when "done" then 3
+      end`),
+          desc(issues.createdAt),
+        ],
+      })
+
+      return data
+    },
   },
   Mutation: {
-    createUser: async (_, { input }, ctx: GQLContext) => {
+    createIssue: async (_, { input }, ctx: GQLContext) => {
       if (!ctx.user) {
         throw new GraphQLError('UNAUTHORIZED', { extensions: { code: 401 } })
       }
@@ -39,13 +66,24 @@ export const resolvers = {
       return { ...data.user, token: data.token }
     },
   },
-  Issues: {
+  Issue: {
     user: (issue, _, ctx) => {
       if (!ctx.user) {
         throw new GraphQLError('UNAUTHORIZED', { extensions: { code: 401 } })
       }
       return db.query.users.findFirst({
         where: eq(users.id, issue.userId),
+      })
+    },
+  },
+
+  User: {
+    issues: (user, _, ctx) => {
+      if (!ctx.user) {
+        throw new GraphQLError('UNAUTHORIZED', { extensions: { code: 401 } })
+      }
+      return db.query.issues.findMany({
+        where: eq(issues.userId, user.id),
       })
     },
   },
